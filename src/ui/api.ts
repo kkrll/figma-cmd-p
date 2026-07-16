@@ -1,8 +1,11 @@
 import type { FileIndexEntry, PageInfo } from '../shared/types.ts';
 
 const BASE = 'https://api.figma.com';
-const MAX_ATTEMPTS = 3;
-const PAGE_FETCH_CONCURRENCY = 3;
+const MAX_ATTEMPTS = 5;
+const PAGE_FETCH_CONCURRENCY = 2;
+/** Spacing between request starts — file endpoints are expensive against Figma's rate budget. */
+const MIN_INTERVAL_MS = 500;
+const DEFAULT_RETRY_AFTER_S = 15;
 
 export interface RefreshProgress {
   phase: 'projects' | 'files' | 'pages';
@@ -16,15 +19,33 @@ function sleep(ms: number): Promise<void> {
 
 const REQUEST_TIMEOUT_MS = 60_000;
 
+// Rate limiting is shared across all concurrent workers: `nextSlot` paces
+// request starts, and a 429 sets `pausedUntil` so every worker backs off
+// together instead of independently retrying into the same limit.
+let nextSlot = 0;
+let pausedUntil = 0;
+
+async function acquireSlot(): Promise<void> {
+  while (true) {
+    const now = Date.now();
+    const slot = Math.max(now, nextSlot, pausedUntil);
+    nextSlot = slot + MIN_INTERVAL_MS; // claim synchronously — no await between read and write
+    if (slot > now) await sleep(slot - now);
+    // Re-loop only if a 429 landed while we slept and pushed the pause past our slot.
+    if (Date.now() >= pausedUntil) return;
+  }
+}
+
 async function api<T>(path: string, token: string): Promise<T> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    await acquireSlot();
     const res = await fetch(`${BASE}${path}`, {
       headers: { 'X-Figma-Token': token },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (res.status === 429) {
-      const retryAfter = Number(res.headers.get('retry-after')) || 5;
-      await sleep(retryAfter * 1000);
+      const retryAfter = Number(res.headers.get('retry-after')) || DEFAULT_RETRY_AFTER_S;
+      pausedUntil = Math.max(pausedUntil, Date.now() + retryAfter * 1000);
       continue;
     }
     if (res.status === 403 || res.status === 401) {
@@ -35,7 +56,7 @@ async function api<T>(path: string, token: string): Promise<T> {
     }
     return (await res.json()) as T;
   }
-  throw new Error(`Rate limited by the Figma API (${path}) — try again in a minute`);
+  throw new Error(`Rate limited (${path}) — try again in a few minutes`);
 }
 
 async function mapLimit<T, R>(
