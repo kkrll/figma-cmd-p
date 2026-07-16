@@ -51,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export type MsgToMain =
   | { type: 'ui-ready' }
+  | { type: 'resize'; width: number; height: number }
   | { type: 'jump-local'; pageId: string; pageName: string }
   | { type: 'open-external'; fileKey: string; fileName: string; pageId: string; pageName: string }
   | { type: 'save-settings'; settings: Settings }

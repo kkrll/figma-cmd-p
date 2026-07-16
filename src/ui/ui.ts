@@ -208,7 +208,11 @@ function activate(entry: DisplayEntry): void {
   }
 }
 
+const SEARCH_SIZE = { width: 520, height: 460 };
+const SETTINGS_SIZE = { width: 520, height: 640 };
+
 function showSettings(): void {
+  post({ type: 'resize', ...SETTINGS_SIZE });
   searchView.hidden = true;
   settingsView.hidden = false;
   tokenInput.value = settings.token;
@@ -219,6 +223,7 @@ function showSettings(): void {
 }
 
 function showSearch(): void {
+  post({ type: 'resize', ...SEARCH_SIZE });
   settingsView.hidden = true;
   searchView.hidden = false;
   queryInput.focus();

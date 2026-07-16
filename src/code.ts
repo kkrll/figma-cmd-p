@@ -51,6 +51,10 @@ async function handleMessage(msg: MsgToMain): Promise<void> {
       await sendInit();
       break;
     }
+    case 'resize': {
+      figma.ui.resize(msg.width, msg.height);
+      break;
+    }
     case 'jump-local': {
       const page = figma.root.children.find((p) => p.id === msg.pageId);
       if (!page) {
