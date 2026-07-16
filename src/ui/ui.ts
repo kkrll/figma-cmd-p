@@ -177,6 +177,17 @@ function timeAgo(ts: number): string {
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
+/** Dumps the index to the console (grouped by project) so missing files can be diagnosed. */
+function logIndex(): void {
+  if (!index) return;
+  const projectName = new Map(settings.knownProjects.map((p) => [p.id, p.name]));
+  const nameOf = (f: { projectId?: string }) => projectName.get(f.projectId ?? '') ?? '(unknown project)';
+  const lines = [...index.files]
+    .sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || a.name.localeCompare(b.name))
+    .map((f) => `${nameOf(f)} / ${f.name} — ${f.pages.length} pages`);
+  console.log(`[cmd-p] indexed files (${index.files.length}):\n${lines.join('\n')}`);
+}
+
 function renderIndexStatus(): void {
   if (!index) {
     indexStatus.textContent = 'No cross-file index — set up in settings (⌘,)';
@@ -361,12 +372,16 @@ async function runIndexFetch(projects: ProjectInfo[], mode: 'replace' | 'merge')
     const pages = files.reduce((n, f) => n + f.pages.length, 0);
     let status = `Done — indexed ${files.length} files, ${pages} pages`;
     if (mode === 'merge') status += ` · index total: ${merged.length} files`;
-    if (failures.length > 0) {
-      const first = failures[0] as { name: string; reason: string };
-      status += ` · ${failures.length} failed — ${first.name}: ${first.reason}${failures.length > 1 ? ' (all listed in console)' : ''}`;
-      console.warn('Files that failed to index:', failures);
+    const skipped = failures.filter((f) => f.unsupported);
+    const errored = failures.filter((f) => !f.unsupported);
+    if (skipped.length > 0) status += ` · ${skipped.length} skipped (Slides/unsupported)`;
+    if (errored.length > 0) {
+      const first = errored[0] as { name: string; reason: string };
+      status += ` · ${errored.length} failed — ${first.name}: ${first.reason}`;
     }
+    if (failures.length > 0) console.warn('Files that could not be indexed:', failures);
     refreshStatus.textContent = status;
+    logIndex();
   } catch (err) {
     showRefreshError(err);
   } finally {
@@ -456,6 +471,7 @@ window.onmessage = (event: MessageEvent) => {
     renderIndexStatus();
     refresh();
     queryInput.focus();
+    logIndex();
   }
 };
 

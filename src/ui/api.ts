@@ -17,6 +17,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 const REQUEST_TIMEOUT_MS = 60_000;
 
 // Rate limiting is shared across all concurrent workers: `nextSlot` paces
@@ -49,10 +57,10 @@ async function api<T>(path: string, token: string): Promise<T> {
       continue;
     }
     if (res.status === 403 || res.status === 401) {
-      throw new Error('Invalid or expired token (check its scopes include file and project reads)');
+      throw new ApiError(res.status, 'Invalid or expired token (check its scopes include file and project reads)');
     }
     if (!res.ok) {
-      throw new Error(`Figma API ${res.status} for ${path}`);
+      throw new ApiError(res.status, `Figma API ${res.status} for ${path}`);
     }
     return (await res.json()) as T;
   }
@@ -116,7 +124,7 @@ async function fetchFilePages(token: string, fileKey: string): Promise<PageInfo[
 export interface IndexResult {
   files: FileIndexEntry[];
   /** Files that could not be indexed, so the caller can surface them. */
-  failures: { name: string; reason: string }[];
+  failures: { name: string; reason: string; unsupported?: boolean }[];
 }
 
 /** Lists all projects across the given teams — one cheap request per team. */
@@ -166,9 +174,18 @@ export async function fetchIndex(
     try {
       pages = await fetchFilePages(token, file.key);
     } catch (err) {
-      // A single unreadable file (deleted, no access, too large) shouldn't
-      // kill the refresh, but the caller needs to know it was skipped.
-      failures.push({ name: file.name, reason: err instanceof Error ? err.message : String(err) });
+      // A single unreadable file shouldn't kill the refresh, but the caller
+      // needs to know it was skipped. A 400 from both endpoints means the
+      // file type isn't served by the REST files API at all (Slides, Buzz).
+      if (err instanceof ApiError && err.status === 400) {
+        failures.push({
+          name: file.name,
+          reason: 'unsupported file type (Slides/Buzz files are not readable via the REST API)',
+          unsupported: true,
+        });
+      } else {
+        failures.push({ name: file.name, reason: err instanceof Error ? err.message : String(err) });
+      }
     }
     onProgress({ phase: 'pages', done: ++pagesDone, total: files.length });
     const entry: FileIndexEntry = { key: file.key, name: file.name, projectId: file.projectId, pages };
