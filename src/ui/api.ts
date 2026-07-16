@@ -98,18 +98,19 @@ function toPages(doc: DocumentNode): PageInfo[] {
 
 async function fetchFilePages(token: string, fileKey: string): Promise<PageInfo[]> {
   const key = encodeURIComponent(fileKey);
+  // The nodes endpoint scoped to the document root only materializes the page
+  // list, so it stays cheap even on files too large for the whole-file
+  // endpoint. That endpoint remains as a fallback for any file where the
+  // document root isn't addressable as 0:0.
   try {
-    const res = await api<FileResponse>(`/v1/files/${key}?depth=1`, token);
-    return toPages(res.document);
-  } catch (err) {
-    // Very large files fail the whole-file endpoint even at depth=1 (it
-    // processes the entire file server-side). The nodes endpoint scoped to
-    // the document root is much lighter — try it before giving up.
     const res = await api<NodesResponse>(`/v1/files/${key}/nodes?ids=0:0&depth=1`, token);
     const root = res.nodes['0:0'];
-    if (!root) throw err;
-    return toPages(root.document);
+    if (root) return toPages(root.document);
+  } catch (_) {
+    // Fall through to the whole-file endpoint.
   }
+  const res = await api<FileResponse>(`/v1/files/${key}?depth=1`, token);
+  return toPages(res.document);
 }
 
 export interface IndexResult {
