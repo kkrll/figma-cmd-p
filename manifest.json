@@ -1,6 +1,6 @@
 {
-  "name": "Cmd+P — Quick Switcher",
-  "id": "7381529460173824651",
+  "name": "proper navigation: find and jump to page/file/project",
+  "id": "1659680743600847038",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "dist/ui.html",

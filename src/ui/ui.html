@@ -48,7 +48,7 @@
     border-color: transparent;
   }
   button:focus-visible { outline: 2px solid var(--figma-color-border-selected, #0d99ff); }
-  #settings-btn { padding: 5px 8px; font-size: 13px; line-height: 1; }
+  #settings-btn { width: 34px; height: 34px; font-size: 24px; padding: 6px 9px 8px; display: flex; align-items: center; justify-content: center; line-height: 1; color: var(--figma-color-text-secondary, #777777);}
 
   #results {
     flex: 1;
@@ -107,6 +107,7 @@
   #settings-view label {
     display: flex;
     flex-direction: column;
+    margin-bottom: 8px;
     gap: 4px;
     color: var(--figma-color-text-secondary, #777777);
   }
@@ -171,6 +172,7 @@
     Team IDs (comma-separated)
     <input id="team-ids" type="text" spellcheck="false" autocomplete="off"
       placeholder="e.g. 123456789012345678" />
+    <span class="hint">Team ID is in the URL when viewing your team: figma.com/files/team/&lt;id&gt;/…</span>
   </label>
   <label>
     Open cross-file links via
@@ -190,7 +192,6 @@
     <button id="back-btn">Back (esc)</button>
   </div>
   <div id="refresh-status"></div>
-  <span class="hint">Team ID is in the URL when viewing your team: figma.com/files/team/&lt;id&gt;/…</span>
 </div>
 
 <script>/*__UI_SCRIPT__*/</script>
