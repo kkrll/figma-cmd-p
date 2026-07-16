@@ -82,8 +82,34 @@ interface TeamProjectsResponse {
 interface ProjectFilesResponse {
   files: { key: string; name: string }[];
 }
+interface DocumentNode {
+  children: { id: string; name: string; type: string }[];
+}
 interface FileResponse {
-  document: { children: { id: string; name: string; type: string }[] };
+  document: DocumentNode;
+}
+interface NodesResponse {
+  nodes: Record<string, { document: DocumentNode } | null>;
+}
+
+function toPages(doc: DocumentNode): PageInfo[] {
+  return doc.children.filter((c) => c.type === 'CANVAS').map((c) => ({ id: c.id, name: c.name }));
+}
+
+async function fetchFilePages(token: string, fileKey: string): Promise<PageInfo[]> {
+  const key = encodeURIComponent(fileKey);
+  try {
+    const res = await api<FileResponse>(`/v1/files/${key}?depth=1`, token);
+    return toPages(res.document);
+  } catch (err) {
+    // Very large files fail the whole-file endpoint even at depth=1 (it
+    // processes the entire file server-side). The nodes endpoint scoped to
+    // the document root is much lighter — try it before giving up.
+    const res = await api<NodesResponse>(`/v1/files/${key}/nodes?ids=0:0&depth=1`, token);
+    const root = res.nodes['0:0'];
+    if (!root) throw err;
+    return toPages(root.document);
+  }
 }
 
 export interface IndexResult {
@@ -137,10 +163,7 @@ export async function fetchIndex(
   const entries = await mapLimit(files, PAGE_FETCH_CONCURRENCY, async (file) => {
     let pages: PageInfo[] = [];
     try {
-      const doc = await api<FileResponse>(`/v1/files/${encodeURIComponent(file.key)}?depth=1`, token);
-      pages = doc.document.children
-        .filter((c) => c.type === 'CANVAS')
-        .map((c) => ({ id: c.id, name: c.name }));
+      pages = await fetchFilePages(token, file.key);
     } catch (err) {
       // A single unreadable file (deleted, no access, too large) shouldn't
       // kill the refresh, but the caller needs to know it was skipped.

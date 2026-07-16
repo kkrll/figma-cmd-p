@@ -362,8 +362,8 @@ async function runIndexFetch(projects: ProjectInfo[], mode: 'replace' | 'merge')
     let status = `Done — indexed ${files.length} files, ${pages} pages`;
     if (mode === 'merge') status += ` · index total: ${merged.length} files`;
     if (failures.length > 0) {
-      const names = failures.map((f) => f.name);
-      status += ` · ${failures.length} failed: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}`;
+      const first = failures[0] as { name: string; reason: string };
+      status += ` · ${failures.length} failed — ${first.name}: ${first.reason}${failures.length > 1 ? ' (all listed in console)' : ''}`;
       console.warn('Files that failed to index:', failures);
     }
     refreshStatus.textContent = status;
