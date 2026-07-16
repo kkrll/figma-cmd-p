@@ -1,4 +1,4 @@
-# Cmd+P — Quick Switcher for Figma
+# Proper figma navigation
 
 A VS Code-style quick switcher plugin: one input, fuzzy-filtered list of pages
 across your current file and (optionally) every file in your teams. Keyboard-only.
