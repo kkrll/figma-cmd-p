@@ -1,4 +1,4 @@
-import { fetchIndex } from './api.ts';
+import { fetchIndex, fetchProjects } from './api.ts';
 import {
   buildCandidates,
   isCurrentFile,
@@ -12,6 +12,7 @@ import {
   type MsgToMain,
   type MsgToUI,
   type PageInfo,
+  type ProjectInfo,
   type RecentEntry,
   type Settings,
 } from '../shared/types.ts';
@@ -55,6 +56,7 @@ const tokenInput = $<HTMLInputElement>('token');
 const teamIdsInput = $<HTMLInputElement>('team-ids');
 const linkStyleSelect = $<HTMLSelectElement>('link-style');
 const refreshStatus = $('refresh-status');
+const projectsList = $('projects-list');
 
 function post(msg: MsgToMain): void {
   parent.postMessage({ pluginMessage: msg }, '*');
@@ -212,6 +214,7 @@ function showSettings(): void {
   tokenInput.value = settings.token;
   teamIdsInput.value = settings.teamIds;
   linkStyleSelect.value = settings.linkStyle;
+  renderProjects();
   tokenInput.focus();
 }
 
@@ -226,6 +229,7 @@ function showSearch(): void {
 
 function readSettingsForm(): Settings {
   return {
+    ...settings,
     token: tokenInput.value.trim(),
     teamIds: teamIdsInput.value.trim(),
     linkStyle: linkStyleSelect.value === 'web' ? 'web' : 'desktop',
@@ -237,32 +241,121 @@ function saveSettings(): void {
   post({ type: 'save-settings', settings });
 }
 
-async function refreshIndex(): Promise<void> {
-  if (refreshing) return;
-  saveSettings();
-  const teamIds = settings.teamIds
+function parseTeamIds(): string[] {
+  return settings.teamIds
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  if (!settings.token || teamIds.length === 0) {
+}
+
+function validateAuth(): boolean {
+  if (!settings.token || parseTeamIds().length === 0) {
     refreshStatus.textContent = 'Enter a token and at least one team ID first';
     refreshStatus.classList.add('error');
+    return false;
+  }
+  return true;
+}
+
+function showRefreshError(err: unknown): void {
+  refreshStatus.textContent = err instanceof Error ? err.message : String(err);
+  refreshStatus.classList.add('error');
+}
+
+function renderProjects(): void {
+  projectsList.textContent = '';
+  if (settings.knownProjects.length === 0) {
+    const span = document.createElement('span');
+    span.className = 'hint';
+    span.textContent = 'Load projects to choose which ones get indexed.';
+    projectsList.appendChild(span);
     return;
   }
+  const excluded = new Set(settings.excludedProjectIds);
+  for (const project of settings.knownProjects) {
+    const row = document.createElement('div');
+    row.className = 'project-row';
+
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !excluded.has(project.id);
+    checkbox.addEventListener('change', () => {
+      const set = new Set(settings.excludedProjectIds);
+      if (checkbox.checked) set.delete(project.id);
+      else set.add(project.id);
+      settings.excludedProjectIds = [...set];
+      post({ type: 'save-settings', settings });
+    });
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(project.name));
+    row.appendChild(label);
+
+    const reindexBtn = document.createElement('button');
+    reindexBtn.className = 'reindex';
+    reindexBtn.textContent = '↻';
+    reindexBtn.title = `Re-index only "${project.name}"`;
+    reindexBtn.addEventListener('click', () => {
+      if (refreshing) return;
+      saveSettings();
+      if (validateAuth()) void runIndexFetch([project], 'merge');
+    });
+    row.appendChild(reindexBtn);
+
+    projectsList.appendChild(row);
+  }
+}
+
+async function loadProjects(): Promise<boolean> {
+  saveSettings();
+  if (!validateAuth()) return false;
+  refreshStatus.classList.remove('error');
+  refreshStatus.textContent = 'Loading projects…';
+  try {
+    const projects = await fetchProjects(settings.token, parseTeamIds());
+    settings.knownProjects = projects;
+    const ids = new Set(projects.map((p) => p.id));
+    settings.excludedProjectIds = settings.excludedProjectIds.filter((id) => ids.has(id));
+    post({ type: 'save-settings', settings });
+    renderProjects();
+    refreshStatus.textContent = `Found ${projects.length} projects — untick any to skip, then refresh`;
+    return true;
+  } catch (err) {
+    showRefreshError(err);
+    return false;
+  }
+}
+
+/**
+ * Fetches the given projects and updates the index. `replace` swaps the whole
+ * index (a full refresh, dropping unticked projects); `merge` re-indexes just
+ * the given projects and keeps everything else as-is.
+ */
+async function runIndexFetch(projects: ProjectInfo[], mode: 'replace' | 'merge'): Promise<void> {
   refreshing = true;
   refreshStatus.classList.remove('error');
-  refreshStatus.textContent = 'Fetching projects…';
+  refreshStatus.textContent = 'Listing files…';
   try {
-    const { files, failures } = await fetchIndex(settings.token, teamIds, (p) => {
-      if (p.phase === 'projects') refreshStatus.textContent = `Fetching projects… (team ${p.done + 1}/${p.total})`;
-      else if (p.phase === 'files') refreshStatus.textContent = `Listing files… (project ${p.done + 1}/${p.total})`;
+    const { files, failures } = await fetchIndex(settings.token, projects, (p) => {
+      if (p.phase === 'files') refreshStatus.textContent = `Listing files… (project ${p.done + 1}/${p.total})`;
       else refreshStatus.textContent = `Reading page names… ${p.done}/${p.total} files`;
     });
-    index = { fetchedAt: Date.now(), files };
+
+    let merged = files;
+    if (mode === 'merge' && index) {
+      const refreshedProjects = new Set(projects.map((p) => p.id));
+      const newKeys = new Set(files.map((f) => f.key));
+      merged = index.files
+        .filter((f) => !(f.projectId && refreshedProjects.has(f.projectId)) && !newKeys.has(f.key))
+        .concat(files);
+    }
+    index = { fetchedAt: Date.now(), files: merged };
     post({ type: 'save-index', index });
     candidates = buildCandidates(currentPages, currentFileKey, currentFileName, index);
+
     const pages = files.reduce((n, f) => n + f.pages.length, 0);
     let status = `Done — indexed ${files.length} files, ${pages} pages`;
+    if (mode === 'merge') status += ` · index total: ${merged.length} files`;
     if (failures.length > 0) {
       const names = failures.map((f) => f.name);
       status += ` · ${failures.length} failed: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}`;
@@ -270,11 +363,24 @@ async function refreshIndex(): Promise<void> {
     }
     refreshStatus.textContent = status;
   } catch (err) {
-    refreshStatus.textContent = err instanceof Error ? err.message : String(err);
-    refreshStatus.classList.add('error');
+    showRefreshError(err);
   } finally {
     refreshing = false;
   }
+}
+
+async function refreshIndex(): Promise<void> {
+  if (refreshing) return;
+  saveSettings();
+  if (!validateAuth()) return;
+  if (settings.knownProjects.length === 0 && !(await loadProjects())) return;
+  const selected = settings.knownProjects.filter((p) => !settings.excludedProjectIds.includes(p.id));
+  if (selected.length === 0) {
+    refreshStatus.textContent = 'All projects are unticked — nothing to index';
+    refreshStatus.classList.add('error');
+    return;
+  }
+  await runIndexFetch(selected, 'replace');
 }
 
 // ---- Events ---------------------------------------------------------------
@@ -325,6 +431,9 @@ $('save-btn').addEventListener('click', () => {
 });
 $('refresh-btn').addEventListener('click', () => {
   void refreshIndex();
+});
+$('load-projects-btn').addEventListener('click', () => {
+  if (!refreshing) void loadProjects();
 });
 
 window.onmessage = (event: MessageEvent) => {

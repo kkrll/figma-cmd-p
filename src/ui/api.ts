@@ -1,4 +1,4 @@
-import type { FileIndexEntry, PageInfo } from '../shared/types.ts';
+import type { FileIndexEntry, PageInfo, ProjectInfo } from '../shared/types.ts';
 
 const BASE = 'https://api.figma.com';
 const MAX_ATTEMPTS = 5;
@@ -8,7 +8,7 @@ const MIN_INTERVAL_MS = 500;
 const DEFAULT_RETRY_AFTER_S = 15;
 
 export interface RefreshProgress {
-  phase: 'projects' | 'files' | 'pages';
+  phase: 'files' | 'pages';
   done: number;
   total: number;
 }
@@ -92,36 +92,42 @@ export interface IndexResult {
   failures: { name: string; reason: string }[];
 }
 
+/** Lists all projects across the given teams — one cheap request per team. */
+export async function fetchProjects(token: string, teamIds: string[]): Promise<ProjectInfo[]> {
+  const projects: ProjectInfo[] = [];
+  for (const teamId of teamIds) {
+    const res = await api<TeamProjectsResponse>(
+      `/v1/teams/${encodeURIComponent(teamId)}/projects`,
+      token
+    );
+    for (const p of res.projects) projects.push({ id: p.id, name: p.name });
+  }
+  return projects;
+}
+
 /**
- * Builds the cross-file index: teams -> projects -> files -> page names.
- * Runs in the UI iframe because the plugin sandbox has no network access.
+ * Indexes the given projects: files -> page names. Runs in the UI iframe
+ * because the plugin sandbox has no network access.
  */
 export async function fetchIndex(
   token: string,
-  teamIds: string[],
+  projects: ProjectInfo[],
   onProgress: (p: RefreshProgress) => void
 ): Promise<IndexResult> {
-  const files: { key: string; name: string }[] = [];
+  const files: { key: string; name: string; projectId: string }[] = [];
   const seenKeys = new Set<string>();
 
-  for (let i = 0; i < teamIds.length; i++) {
-    onProgress({ phase: 'projects', done: i, total: teamIds.length });
-    const { projects } = await api<TeamProjectsResponse>(
-      `/v1/teams/${encodeURIComponent(teamIds[i] as string)}/projects`,
+  for (let j = 0; j < projects.length; j++) {
+    onProgress({ phase: 'files', done: j, total: projects.length });
+    const project = projects[j] as ProjectInfo;
+    const res = await api<ProjectFilesResponse>(
+      `/v1/projects/${encodeURIComponent(project.id)}/files`,
       token
     );
-    for (let j = 0; j < projects.length; j++) {
-      onProgress({ phase: 'files', done: j, total: projects.length });
-      const project = projects[j] as { id: string; name: string };
-      const res = await api<ProjectFilesResponse>(
-        `/v1/projects/${encodeURIComponent(project.id)}/files`,
-        token
-      );
-      for (const f of res.files) {
-        if (!seenKeys.has(f.key)) {
-          seenKeys.add(f.key);
-          files.push(f);
-        }
+    for (const f of res.files) {
+      if (!seenKeys.has(f.key)) {
+        seenKeys.add(f.key);
+        files.push({ key: f.key, name: f.name, projectId: project.id });
       }
     }
   }
@@ -141,7 +147,7 @@ export async function fetchIndex(
       failures.push({ name: file.name, reason: err instanceof Error ? err.message : String(err) });
     }
     onProgress({ phase: 'pages', done: ++pagesDone, total: files.length });
-    const entry: FileIndexEntry = { key: file.key, name: file.name, pages };
+    const entry: FileIndexEntry = { key: file.key, name: file.name, projectId: file.projectId, pages };
     return entry;
   });
 

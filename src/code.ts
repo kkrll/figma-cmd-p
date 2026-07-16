@@ -125,7 +125,7 @@ async function sendInit(): Promise<void> {
   });
 }
 
-figma.showUI(__html__, { width: 520, height: 400, themeColors: true });
+figma.showUI(__html__, { width: 520, height: 460, themeColors: true });
 
 // The message handler is installed synchronously: init is only sent once the
 // UI posts 'ui-ready', since messages posted before the iframe finishes

@@ -14,6 +14,8 @@ export interface RecentEntry {
 export interface FileIndexEntry {
   key: string;
   name: string;
+  /** Project the file belongs to; lets a partial refresh replace just that project's files. Absent in pre-existing stored indexes. */
+  projectId?: string;
   pages: PageInfo[];
 }
 
@@ -24,16 +26,27 @@ export interface CrossFileIndex {
 
 export type LinkStyle = 'desktop' | 'web';
 
+export interface ProjectInfo {
+  id: string;
+  name: string;
+}
+
 export interface Settings {
   token: string;
   teamIds: string;
   linkStyle: LinkStyle;
+  /** Projects discovered via "Load projects", shown as checkboxes in settings. */
+  knownProjects: ProjectInfo[];
+  /** Unticked projects — excluded so newly appearing projects are indexed by default. */
+  excludedProjectIds: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   token: '',
   teamIds: '',
   linkStyle: 'desktop',
+  knownProjects: [],
+  excludedProjectIds: [],
 };
 
 export type MsgToMain =

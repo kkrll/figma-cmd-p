@@ -99,7 +99,7 @@
   footer .stale { color: var(--figma-color-text-danger, #dc3412); }
 
   /* Settings */
-  #settings-view { padding: 12px; gap: 10px; }
+  #settings-view { padding: 12px; gap: 10px; overflow-y: auto; }
   #settings-view h2 { font-size: 12px; font-weight: 600; }
   #settings-view label {
     display: flex;
@@ -111,6 +111,35 @@
   #refresh-status { min-height: 16px; color: var(--figma-color-text-secondary, #777777); }
   #refresh-status.error { color: var(--figma-color-text-danger, #dc3412); }
   .hint { color: var(--figma-color-text-tertiary, #b3b3b3); }
+  .projects-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--figma-color-text-secondary, #777777);
+  }
+  #projects-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 130px;
+    overflow-y: auto;
+    border: 1px solid var(--figma-color-border, #e6e6e6);
+    border-radius: 5px;
+    padding: 6px 8px;
+  }
+  .project-row { display: flex; align-items: center; gap: 6px; }
+  #settings-view .project-row label {
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    color: var(--figma-color-text, #111111);
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .project-row .reindex { padding: 1px 6px; font-size: 12px; }
 </style>
 
 <div id="search-view" class="view">
@@ -147,6 +176,11 @@
       <option value="web">Browser (www.figma.com)</option>
     </select>
   </label>
+  <div class="projects-header">
+    <span>Projects to index</span>
+    <button id="load-projects-btn">Load projects</button>
+  </div>
+  <div id="projects-list"></div>
   <div class="row">
     <button id="save-btn" class="primary">Save</button>
     <button id="refresh-btn">Refresh index</button>

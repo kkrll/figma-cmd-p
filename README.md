@@ -36,10 +36,19 @@ Open settings with the gear button or `Cmd/Ctrl+,`:
 2. **Team IDs** — the REST API cannot enumerate your teams, so paste them
    manually (comma-separated). The ID is in the URL when you open a team:
    `figma.com/files/team/<id>/…`.
-3. **Refresh index** — fetches projects → files → page names
+3. **Load projects** — lists the teams' projects as checkboxes. Untick any
+   you don't want indexed (selection persists; new projects default to
+   included).
+4. **Refresh index** — fetches files → page names for the ticked projects
    (`GET /v1/projects/:id/files`, then `GET /v1/files/:key?depth=1` per file)
-   and caches everything in `clientStorage`. Refresh is always manual; the
-   footer shows how stale the index is (red after 24h).
+   and caches everything in `clientStorage`. Each project row also has a **↻**
+   button to re-index just that project, merging into the existing index —
+   much faster than a full refresh on large teams. Refresh is always manual;
+   the footer shows how stale the index is (red after 24h).
+
+Requests are throttled (~2/sec, shared backoff on 429) to stay inside the
+Figma REST rate limits; files that still fail to index are listed in the
+refresh status instead of being dropped silently.
 
 All REST calls run from the UI iframe (the plugin sandbox has no network
 access); `manifest.json` allowlists only `https://api.figma.com`.
