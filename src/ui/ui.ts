@@ -253,7 +253,7 @@ async function refreshIndex(): Promise<void> {
   refreshStatus.classList.remove('error');
   refreshStatus.textContent = 'Fetching projects…';
   try {
-    const files = await fetchIndex(settings.token, teamIds, (p) => {
+    const { files, failures } = await fetchIndex(settings.token, teamIds, (p) => {
       if (p.phase === 'projects') refreshStatus.textContent = `Fetching projects… (team ${p.done + 1}/${p.total})`;
       else if (p.phase === 'files') refreshStatus.textContent = `Listing files… (project ${p.done + 1}/${p.total})`;
       else refreshStatus.textContent = `Reading page names… ${p.done}/${p.total} files`;
@@ -262,7 +262,13 @@ async function refreshIndex(): Promise<void> {
     post({ type: 'save-index', index });
     candidates = buildCandidates(currentPages, currentFileKey, currentFileName, index);
     const pages = files.reduce((n, f) => n + f.pages.length, 0);
-    refreshStatus.textContent = `Done — indexed ${files.length} files, ${pages} pages`;
+    let status = `Done — indexed ${files.length} files, ${pages} pages`;
+    if (failures.length > 0) {
+      const names = failures.map((f) => f.name);
+      status += ` · ${failures.length} failed: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}`;
+      console.warn('Files that failed to index:', failures);
+    }
+    refreshStatus.textContent = status;
   } catch (err) {
     refreshStatus.textContent = err instanceof Error ? err.message : String(err);
     refreshStatus.classList.add('error');

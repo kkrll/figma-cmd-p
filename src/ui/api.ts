@@ -14,9 +14,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const REQUEST_TIMEOUT_MS = 60_000;
+
 async function api<T>(path: string, token: string): Promise<T> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const res = await fetch(`${BASE}${path}`, { headers: { 'X-Figma-Token': token } });
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { 'X-Figma-Token': token },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
     if (res.status === 429) {
       const retryAfter = Number(res.headers.get('retry-after')) || 5;
       await sleep(retryAfter * 1000);
@@ -60,6 +65,12 @@ interface FileResponse {
   document: { children: { id: string; name: string; type: string }[] };
 }
 
+export interface IndexResult {
+  files: FileIndexEntry[];
+  /** Files that could not be indexed, so the caller can surface them. */
+  failures: { name: string; reason: string }[];
+}
+
 /**
  * Builds the cross-file index: teams -> projects -> files -> page names.
  * Runs in the UI iframe because the plugin sandbox has no network access.
@@ -68,7 +79,7 @@ export async function fetchIndex(
   token: string,
   teamIds: string[],
   onProgress: (p: RefreshProgress) => void
-): Promise<FileIndexEntry[]> {
+): Promise<IndexResult> {
   const files: { key: string; name: string }[] = [];
   const seenKeys = new Set<string>();
 
@@ -95,6 +106,7 @@ export async function fetchIndex(
   }
 
   let pagesDone = 0;
+  const failures: IndexResult['failures'] = [];
   const entries = await mapLimit(files, PAGE_FETCH_CONCURRENCY, async (file) => {
     let pages: PageInfo[] = [];
     try {
@@ -102,13 +114,15 @@ export async function fetchIndex(
       pages = doc.document.children
         .filter((c) => c.type === 'CANVAS')
         .map((c) => ({ id: c.id, name: c.name }));
-    } catch (_) {
-      // A single unreadable file (deleted, no access) shouldn't kill the refresh.
+    } catch (err) {
+      // A single unreadable file (deleted, no access, too large) shouldn't
+      // kill the refresh, but the caller needs to know it was skipped.
+      failures.push({ name: file.name, reason: err instanceof Error ? err.message : String(err) });
     }
     onProgress({ phase: 'pages', done: ++pagesDone, total: files.length });
     const entry: FileIndexEntry = { key: file.key, name: file.name, pages };
     return entry;
   });
 
-  return entries.filter((e) => e.pages.length > 0);
+  return { files: entries.filter((e) => e.pages.length > 0), failures };
 }
